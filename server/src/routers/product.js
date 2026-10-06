@@ -16,20 +16,49 @@ router.get("/products", async (req, res, next) => {
 })
 
 router.patch("/product/:sku/stock", async (req, res, next) => {
-  /*
-   * CANDIDATE TODO
-   *
-   * Implement add/remove stock as described in ASSESSMENT.md.
-   * The UI sends a positive `change` for Add stock and a negative
-   * `change` for Remove stock.
-   *
-   * Request body examples:
-   * { change: 5, reason: "Goods received" }
-   * { change: -4, reason: "Customer order" }
-   */
-  res.status(501).send({
-    message: "Stock update has not been implemented",
-  })
+  const { change, reason } = req.body
+
+  if (!Number.isInteger(change) || change === 0) {
+    return res.status(400).send({
+      message: "change must be a non-zero integer",
+    })
+  }
+
+  if (typeof reason !== "string" || !reason.trim()) {
+    return res.status(400).send({
+      message: "reason is required",
+    })
+  }
+
+  try {
+    const product = await Product.findOne({
+      sku: req.params.sku,
+      deleted: { $ne: true },
+    })
+
+    if (!product) {
+      return res.status(404).send({
+        message: "Product not found",
+      })
+    }
+
+    if (product.stock + change < 0) {
+      return res.status(409).send({
+        message: "Insufficient stock",
+      })
+    }
+
+    product.stock += change
+    product.stockAdjustments.push({
+      change,
+      reason: reason.trim(),
+    })
+
+    await product.save()
+    return res.send(product)
+  } catch (error) {
+    return next(error)
+  }
 })
 
 module.exports = router
