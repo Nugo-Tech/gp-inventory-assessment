@@ -16,20 +16,60 @@ router.get("/products", async (req, res, next) => {
 })
 
 router.patch("/product/:sku/stock", async (req, res, next) => {
-  /*
-   * CANDIDATE TODO
-   *
-   * Implement add/remove stock as described in ASSESSMENT.md.
-   * The UI sends a positive `change` for Add stock and a negative
-   * `change` for Remove stock.
-   *
-   * Request body examples:
-   * { change: 5, reason: "Goods received" }
-   * { change: -4, reason: "Customer order" }
-   */
-  res.status(501).send({
-    message: "Stock update has not been implemented",
-  })
+  try {
+    const { sku } = req.params
+    const { change } = req.body || {}
+    const reason =
+      typeof req.body?.reason === "string" ? req.body.reason.trim() : ""
+
+    // isSafeInteger also rejects values like 1e300 that isInteger accepts.
+    if (!Number.isSafeInteger(change) || change === 0) {
+      return res.status(400).send({
+        message: "Change must be a non-zero integer",
+      })
+    }
+
+    if (!reason) {
+      return res.status(400).send({
+        message: "Reason is required",
+      })
+    }
+
+    // Single atomic update: for removals the filter only matches when
+    // enough stock exists, so concurrent requests cannot go negative.
+    const filter = { sku, deleted: { $ne: true } }
+    if (change < 0) {
+      filter.stock = { $gte: -change }
+    }
+
+    const product = await Product.findOneAndUpdate(
+      filter,
+      {
+        $inc: { stock: change },
+        $push: {
+          stockAdjustments: { change, reason, adjustedAt: new Date() },
+        },
+      },
+      { new: true },
+    )
+
+    if (product) {
+      return res.send(product)
+    }
+
+    const exists = await Product.exists({ sku, deleted: { $ne: true } })
+    if (!exists) {
+      return res.status(404).send({
+        message: `Product with SKU ${sku} was not found`,
+      })
+    }
+
+    res.status(409).send({
+      message: "Insufficient stock for this removal",
+    })
+  } catch (error) {
+    next(error)
+  }
 })
 
 module.exports = router

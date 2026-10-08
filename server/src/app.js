@@ -14,6 +14,12 @@ app.get("/health", (req, res) => {
 app.use(productRouter)
 
 app.use((error, req, res, next) => {
+  if (error.type === "entity.parse.failed") {
+    return res.status(400).send({
+      message: "Request body must be valid JSON",
+    })
+  }
+
   console.error(error)
   res.status(500).send({
     message: "Internal server error",
